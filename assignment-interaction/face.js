@@ -1,31 +1,194 @@
-var gl;
-var points;
+// PointLightedCube.js (c) 2012 matsuda
+// Vertex shader program
+var VSHADER_SOURCE =
+  'attribute vec4 a_Position;\n' +
+  'attribute vec4 a_Color;\n' +
+  'attribute vec4 a_Normal;\n' +
+  'uniform mat4 u_MvpMatrix;\n' +
+  'uniform mat4 u_ModelMatrix;\n' +    // Model matrix
+  'uniform mat4 u_NormalMatrix;\n' +   // Coordinate transformation matrix of the normal
+  'uniform vec3 u_LightColor;\n' +     // Light color
+  'uniform vec3 u_LightPosition;\n' +  // Position of the light source
+  'uniform vec3 u_AmbientLight;\n' +   // Ambient light color
+  'varying vec4 v_Color;\n' +
+  'void main() {\n' +
+  '  gl_Position = u_MvpMatrix * a_Position;\n' +
+     // Recalculate the normal based on the model matrix and make its length 1.
+  '  vec3 normal = normalize(vec3(u_NormalMatrix * a_Normal));\n' +
+     // Calculate world coordinate of vertex
+  '  vec4 vertexPosition = u_ModelMatrix * a_Position;\n' +
+     // Calculate the light direction and make it 1.0 in length
+  '  vec3 lightDirection = normalize(u_LightPosition - vec3(vertexPosition));\n' +
+     // Calculate the dot product of the normal and light direction
+  '  float nDotL = max(dot(normal, lightDirection), 0.0);\n' +
+     // Calculate the color due to diffuse reflection
+  '  vec3 diffuse = u_LightColor * a_Color.rgb * nDotL;\n' +
+     // Calculate the color due to ambient reflection
+  '  vec3 ambient = u_AmbientLight * a_Color.rgb;\n' +
+     // Add the surface colors due to diffuse reflection and ambient reflection
+  '  v_Color = vec4(diffuse + ambient, a_Color.a);\n' +
+  '}\n';
 
-const unitScale = 0.075;
-var angle = 0;
+// Fragment shader program
+var FSHADER_SOURCE =
+  '#ifdef GL_ES\n' +
+  'precision mediump float;\n' +
+  '#endif\n' +
+  'varying vec4 v_Color;\n' +
+  'void main() {\n' +
+  '  gl_FragColor = v_Color;\n' +
+  '}\n';
 
-window.onload = function init() {
-  var canvas = document.getElementById("gl-canvas");
+var currentAngle = 0;
 
-  gl = WebGLUtils.setupWebGL(canvas);
+var tick = function () {}
 
+function main() {
+  // Retrieve <canvas> element
+  var canvas = document.getElementById('gl-canvas');
+
+  // Get the rendering context for WebGL
+  var gl = getWebGLContext(canvas);
   if (!gl) {
-      alert("WebGL isn't available");
+    console.log('Failed to get the rendering context for WebGL');
+    return;
   }
 
-  render(canvas);
-};
-
-function render(canvas) {
-  gl.clear(gl.COLOR_BUFFER_BIT);
-
-
-  const data =  {
-    vertices: [],
-    colors: []
+  // Initialize shaders
+  if (!initShaders(gl, VSHADER_SOURCE, FSHADER_SOURCE)) {
+    console.log('Failed to intialize shaders.');
+    return;
   }
-  const blue = [0.051, 0.278, 0.631, 1.0];
-  const turquoise = [0.0,  0.514,  0.557,  1.0];
+
+  // Set the vertex coordinates, the color and the normal
+  var n = initVertexBuffers(gl);
+  if (n < 0) {
+    console.log('Failed to set the vertex information');
+    return;
+  }
+
+  // Set the clear color and enable the depth test
+  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  gl.enable(gl.DEPTH_TEST);
+
+  // Get the storage locations of uniform variables and so on
+  var u_ModelMatrix = gl.getUniformLocation(gl.program, 'u_ModelMatrix');
+  var u_MvpMatrix = gl.getUniformLocation(gl.program, 'u_MvpMatrix');
+  var u_NormalMatrix = gl.getUniformLocation(gl.program, 'u_NormalMatrix');
+  var u_LightColor = gl.getUniformLocation(gl.program, 'u_LightColor');
+  var u_LightPosition = gl.getUniformLocation(gl.program, 'u_LightPosition');
+  var u_AmbientLight = gl.getUniformLocation(gl.program, 'u_AmbientLight');
+  if (!u_MvpMatrix || !u_NormalMatrix || !u_LightColor || !u_LightPosition　|| !u_AmbientLight) {
+    console.log('Failed to get the storage location');
+    return;
+  }
+
+  var vpMatrix = new Matrix4();   // View projection matrix
+  vpMatrix.setPerspective(30, canvas.width/canvas.height, 1, 100);
+  vpMatrix.lookAt(6, 6, 14, 0, 0, 0, 0, 1, 0);
+
+  // Set the light color (white)
+  gl.uniform3f(u_LightColor, 1.0, 1.0, 1.0);
+  // Set the light direction (in the world coordinate)
+  gl.uniform3f(u_LightPosition, 2.5, 2.5, 5);
+  // Set the ambient light
+  gl.uniform3f(u_AmbientLight, 0.75, 0.75, 0.75);
+
+  var modelMatrix = new Matrix4();  // Model matrix
+  var mvpMatrix = new Matrix4();    // Model view projection matrix
+  var normalMatrix = new Matrix4(); // Transformation matrix for normals
+
+  tick = function() {
+
+    // Calculate the model matrix
+    modelMatrix.setRotate(currentAngle, 0, 1, 0); // Rotate around the y-axis
+    // Pass the model matrix to u_ModelMatrix
+    gl.uniformMatrix4fv(u_ModelMatrix, false, modelMatrix.elements);
+
+    // Pass the model view projection matrix to u_MvpMatrix
+    mvpMatrix.set(vpMatrix).multiply(modelMatrix);
+    gl.uniformMatrix4fv(u_MvpMatrix, false, mvpMatrix.elements);
+
+    // Pass the matrix to transform the normal based on the model matrix to u_NormalMatrix
+    normalMatrix.setInverseOf(modelMatrix);
+    normalMatrix.transpose();
+    gl.uniformMatrix4fv(u_NormalMatrix, false, normalMatrix.elements);
+
+    // Clear color and depth buffer
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Draw the cube
+    gl.drawArrays(gl.TRIANGLES, 0, n);
+
+    // requestAnimationFrame(tick, canvas); // Request that the browser ?calls tick
+    // Register the event handler to be called when keys are pressed
+    document.onkeydown = function(ev){ keydown(ev); };
+  };
+  tick();
+}
+
+function initVertexBuffers(gl) {
+
+  const data = loadMeshData();
+  console.log(data)
+
+  var vertices = data.vertices.map((v) => v/1.3);
+
+  // Colors
+  var colors = new Float32Array([... Array(data.vertices.length)].map(() => [0.051, 0.278, 0.631, 1.0]).flat(1))
+
+  // Normal
+  var normals = data.vertices
+
+  // Indices of the vertices
+  var indices = [... Array(data.vertices.length)].map((v, i) => i)
+
+  // Write the vertex property to buffers (coordinates, colors and normals)
+  if (!initArrayBuffer(gl, 'a_Position', vertices, 3, gl.FLOAT)) return -1;
+  if (!initArrayBuffer(gl, 'a_Color', colors, 4, gl.FLOAT)) return -1;
+  if (!initArrayBuffer(gl, 'a_Normal', normals, 3, gl.FLOAT)) return -1;
+
+  return indices.length / 3;
+}
+
+function initArrayBuffer(gl, attribute, data, num, type) {
+  // Create a buffer object
+  var buffer = gl.createBuffer();
+  if (!buffer) {
+    console.log('Failed to create the buffer object');
+    return false;
+  }
+  // Write date into the buffer object
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  // Assign the buffer object to the attribute variable
+  var a_attribute = gl.getAttribLocation(gl.program, attribute);
+  if (a_attribute < 0) {
+    console.log('Failed to get the storage location of ' + attribute);
+    return false;
+  }
+  gl.vertexAttribPointer(a_attribute, num, type, false, 0, 0);
+  // Enable the assignment of the buffer object to the attribute variable
+  gl.enableVertexAttribArray(a_attribute);
+
+  return true;
+}
+
+// Rotation angle (degrees/second)
+var ANGLE_STEP = 2.0;
+// Last time that this function was called
+var g_last = Date.now();
+function animate(angle) {
+  // Calculate the elapsed time
+  var now = Date.now();
+  var elapsed = now - g_last;
+  g_last = now;
+  // Update the current rotation angle (adjusted by the elapsed time)
+  var newAngle = angle + (ANGLE_STEP * elapsed) / 1000.0;
+  return newAngle %= 360;
+}
+
+function loadMeshData() {
   const string = `
   v -1.552671 -5.544443 -0.380425
   v -1.290538 -5.913335 0.087237
@@ -1020,68 +1183,23 @@ function render(canvas) {
   f 41//406 44//406 43//406
   f 20//407 113//407 19//407
   f 168//408 146//408 167//408
-  `
-  const face = loadMeshData(string);
-
-  data.vertices = face.vertices;
-  const colors = [... Array(face.vertices.length)].map(() => [0.051, 0.278, 0.631, 1.0]).flat(1)
-  data.colors = colors.concat(colors)
-  data.vertices = flatten(data.vertices);
-  data.vertices = data.vertices.map((v) => v/4);
-
-  // Configure WebGL
-  gl.viewport(0, 0, canvas.width, canvas.height);
-  gl.clearColor(1.0, 1.0, 1.0, 1.0);
-  gl.enable(gl.DEPTH_TEST);
-
-  // Load shaders and initialize attribute buffers
-  var program = initShaders(gl, "vertex-shader", "fragment-shader");
-  gl.useProgram(program);
-
-  // Load the data into the GPU
-  var bufferId = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, bufferId);
-  gl.bufferData(gl.ARRAY_BUFFER, data.vertices, gl.STATIC_DRAW);
-
-  // Associate out shader variables with our data buffer
-  var aVertexPosition = gl.getAttribLocation(program, "aVertexPosition");
-  gl.vertexAttribPointer(aVertexPosition, 3, gl.FLOAT, false, 0, 0);
-  gl.enableVertexAttribArray(aVertexPosition);
-
-  const colorBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data.colors), gl.STATIC_DRAW);
-
-  var aVertexColor = gl.getAttribLocation(program, "aVertexColor");
-  gl.vertexAttribPointer(aVertexColor, 4, gl.FLOAT, false, 0, 0);
-  gl.enableVertexAttribArray(aVertexColor);
-  gl.drawArrays(gl.TRIANGLES, 0, data.vertices.length / 3);
-  setTimeout(function(){ render(canvas); }, 1000);
-}
-
-function loadMeshData(string) {
+`
   var lines = string.split("\n");
   var positions = [];
   var normals = [];
   var vertices = [];
-  angle += 0.5;
+  var indices = [];
 
   for ( var i = 0 ; i < lines.length ; i++ ) {
     var parts = lines[i].trimLeft().trimRight().split(' ');
     if ( parts.length > 0 ) {
       switch(parts[0]) {
-        case 'v':{
-
-          const x = parseFloat(parts[1])
-          const y = parseFloat(parts[2])
-          const z = parseFloat(parts[3])
-          positions.push([
-            x * Math.cos(angle) + z * Math.sin(angle),
-            y,
-            -x * Math.sin(angle) + z * Math.cos(angle)
+        case 'v':  positions.push([
+            parseFloat(parts[1]),
+            parseFloat(parts[2]),
+            parseFloat(parts[3])
           ]);
-            break;
-        }
+          break;
         case 'vn':
           normals.push([
               parseFloat(parts[1]),
@@ -1102,6 +1220,10 @@ function loadMeshData(string) {
           Array.prototype.push.apply(
             vertices, positions[parseInt(f3[0]) - 1]
           );
+          // Indicies
+          indices.push(parseInt(f1[0]) - 1)
+          indices.push(parseInt(f2[0]) - 1)
+          indices.push(parseInt(f3[0]) - 1)
           break;
         }
       }
@@ -1111,11 +1233,22 @@ function loadMeshData(string) {
   console.log("Loaded mesh with " + vertexCount + " vertices");
   return {
     primitiveType: 'TRIANGLES',
-    vertices: new Float32Array(vertices),
-    vertexCount: vertexCount
+    vertices:  new Float32Array(vertices),
+    vertexCount: vertexCount,
+    indices: new Float32Array(indices),
+    normals: flatten(normals)
   };
 }
 
-function degreesToRadians(angle) {
-  return angle * Math.PI / 180;
+function keydown(ev) {
+  switch (ev.keyCode) {
+    case 39: // Right arrow key -> the positive rotation  around the y-axis
+      currentAngle = (currentAngle + ANGLE_STEP) % 360;
+      break;
+    case 37: // Left arrow key -> the negative rotation  around the y-axis
+      currentAngle = (currentAngle - ANGLE_STEP) % 360;
+      break;
+    default: return; // Skip drawing at no effective action
+  }
+  tick();
 }

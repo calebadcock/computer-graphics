@@ -40,6 +40,9 @@ var FSHADER_SOURCE =
   '}\n';
 
 var currentAngle = 0;
+var lightIntensity = 1;
+
+const LIGHT_STEP = 0.1
 
 var tick = function () {}
 
@@ -68,7 +71,6 @@ function main() {
   }
 
   // Set the clear color and enable the depth test
-  gl.clearColor(0.0, 0.0, 0.0, 1.0);
   gl.enable(gl.DEPTH_TEST);
 
   // Get the storage locations of uniform variables and so on
@@ -87,18 +89,21 @@ function main() {
   vpMatrix.setPerspective(30, canvas.width/canvas.height, 1, 100);
   vpMatrix.lookAt(6, 6, 14, 0, 0, 0, 0, 1, 0);
 
-  // Set the light color (white)
-  gl.uniform3f(u_LightColor, 1.0, 1.0, 1.0);
-  // Set the light direction (in the world coordinate)
-  gl.uniform3f(u_LightPosition, 2.5, 2.5, 5);
-  // Set the ambient light
-  gl.uniform3f(u_AmbientLight, 0.75, 0.75, 0.75);
-
   var modelMatrix = new Matrix4();  // Model matrix
   var mvpMatrix = new Matrix4();    // Model view projection matrix
   var normalMatrix = new Matrix4(); // Transformation matrix for normals
 
   tick = function() {
+
+    // Set the light color (white)
+    gl.uniform3f(u_LightColor, 1.0 * lightIntensity, 1.0 * lightIntensity, 1.0 * lightIntensity);
+    // Set the light direction (in the world coordinate)
+    gl.uniform3f(u_LightPosition, 2.5, 2.5, 5);
+    // Set the ambient light
+    gl.uniform3f(u_AmbientLight, 1, 1, 1);
+
+    gl.clearColor(1.0 * lightIntensity + 1, 1.0 * lightIntensity +1, 1.0 * lightIntensity + 1,  1.0);
+
 
     // Calculate the model matrix
     modelMatrix.setRotate(currentAngle, 0, 1, 0); // Rotate around the y-axis
@@ -1242,10 +1247,16 @@ function loadMeshData() {
 
 function keydown(ev) {
   switch (ev.keyCode) {
-    case 39: // Right arrow key -> the positive rotation  around the y-axis
+    case 38: // Up arrow key -> raises light
+      lightIntensity += LIGHT_STEP;
+      break;
+    case 40: // Down arrow key -> lowers light
+      lightIntensity -= LIGHT_STEP;
+      break;
+    case 39: // Right arrow key -> the positive rotation around the y-axis
       currentAngle = (currentAngle + ANGLE_STEP) % 360;
       break;
-    case 37: // Left arrow key -> the negative rotation  around the y-axis
+    case 37: // Left arrow key -> the negative rotation around the y-axis
       currentAngle = (currentAngle - ANGLE_STEP) % 360;
       break;
     default: return; // Skip drawing at no effective action
